@@ -81,27 +81,33 @@ export async function getDirectory(req, res, next) {
   }
 }
 
-const searchSchema = Joi.object({
-  name: Joi.string().trim().max(120),
-  department: Joi.string().trim().max(120),
-  role: Joi.string().valid('instructor', 'superadmin')
-});
+// Whitelisted search fields and the only accepted role values.
+const SEARCHABLE_STRING_FIELDS = ['name', 'department'];
+const VALID_ROLES = ['instructor', 'superadmin'];
 
 // GET /api/instructors/search
 export async function searchInstructors(req, res, next) {
   try {
-    // Unknown keys (e.g. `$where`, `role[$ne]`) are rejected here; object values
-    // (e.g. `name[$regex]=...`) fail the string check. Only the whitelisted,
-    // typed fields below can ever reach the query.
-    const { value, error } = searchSchema.validate(req.query);
-    if (error) return res.status(400).json({ message: error.message });
-
+    // Build the filter ONLY from whitelisted fields whose value is a plain
+    // string. Anything else — an injected operator object (`role[$ne]=...`,
+    // `name[$regex]=...`), an unknown key (`$where`, `username`), or a non-string
+    // value — is simply ignored rather than rejected. Combined with
+    // express-mongo-sanitize (which already strips `$`/`.` keys), no operator can
+    // reach the query, so a tampered request degrades to a normal public search
+    // and returns 200 instead of leaking data or erroring out.
+    const q = req.query || {};
     const filter = {};
-    if (value.name) {
-      filter.name = { $regex: escapeRegExp(value.name), $options: 'i' };
+
+    for (const field of SEARCHABLE_STRING_FIELDS) {
+      const val = q[field];
+      if (typeof val === 'string' && val.trim() !== '') {
+        // Escaped literal regex: case-insensitive "contains", no regex injection.
+        filter[field] = { $regex: escapeRegExp(val.trim()), $options: 'i' };
+      }
     }
-    if (value.department) filter.department = value.department;
-    if (value.role) filter.role = value.role;
+    if (typeof q.role === 'string' && VALID_ROLES.includes(q.role)) {
+      filter.role = q.role;
+    }
 
     // Return only public fields regardless of the filter, so search can never
     // leak password / apiKey / private contact info.
