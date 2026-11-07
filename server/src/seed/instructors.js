@@ -4,8 +4,10 @@ import mongoose from 'mongoose';
 import { connectDB } from '../config/db.js';
 import { Instructor } from '../models/Instructor.js';
 
-// Seed data for the Instructor Portal NoSQL injection lab.
-// Passwords are plaintext ON PURPOSE (see Instructor model / Flow.md).
+// Seed data for the Instructor Portal.
+// Passwords here are the *plain-text* values; they are hashed with bcrypt by the
+// model's pre-save hook when created below (we use create(), not insertMany, so
+// the hook runs). The stored value is always a hash.
 const instructors = [
   {
     name: 'Prof. Alice Smith',
@@ -50,7 +52,8 @@ const instructors = [
 async function run() {
   await connectDB();
   await Instructor.deleteMany({});
-  const created = await Instructor.insertMany(instructors);
+  // create() runs the pre-save hook per document, so passwords are hashed.
+  const created = await Instructor.create(instructors);
   console.log(`Seeded ${created.length} instructor(s):`);
   for (const i of created) {
     console.log(`  - ${i.username} (${i.role})`);
